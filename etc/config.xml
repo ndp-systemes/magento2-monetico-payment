@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * NDP_Monetico extension
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Open Software License ("OSL") v. 3.0
+ * that is bundled with this package in the file LICENSE.txt.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/OSL-3.0
+ *
+ * @category       NDP
+ * @package        NDP_Monetico
+ * @copyright      Copyright (c) 2017
+ * @author         NDP Systèmes
+ * @license        Open Software License ("OSL") v. 3.0
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../Store/etc/config.xsd">
+    <default>
+        <payment>
+            <monetico>
+                <model>NDP\Monetico\Model\Monetico</model>
+                <active>1</active>
+                <title>Monetico</title>
+                <payment_action>capture</payment_action>
+                <express_payment>false</express_payment>
+                <test_mode>true</test_mode>
+                <api_url>https://p.monetico-services.com/paiement.cgi</api_url>
+                <api_url_test_mode>https://p.monetico-services.com/test/paiement.cgi</api_url_test_mode>
+            </monetico>
+        </payment>
+    </default>
+</config>

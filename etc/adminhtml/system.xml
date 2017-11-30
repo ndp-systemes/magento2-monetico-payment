@@ -1,0 +1,89 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * NDP_Monetico extension
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Open Software License ("OSL") v. 3.0
+ * that is bundled with this package in the file LICENSE.txt.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/OSL-3.0
+ *
+ * @category       NDP
+ * @package        NDP_Monetico
+ * @copyright      Copyright (c) 2017
+ * @author         NDP Systèmes
+ * @license        Open Software License ("OSL") v. 3.0
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
+    <system>
+        <section id="payment">
+                <group id="monetico" translate="label comment" sortOrder="1" showInDefault="1" showInWebsite="1" showInStore="1">
+
+                    <label>Monetico</label>
+
+                    <field id="active" translate="label comment" sortOrder="1" type="select" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Enable</label>
+                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    </field>
+
+                    <field id="title" translate="label comment" sortOrder="2" type="text" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Title</label>
+                    </field>
+
+                    <field id="express_payment" translate="label comment" type="select" sortOrder="4" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Express Payment</label>
+                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    </field>
+
+                    <field id="allowspecific" translate="label comment" type="allowspecific" sortOrder="5" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Payment from Applicable Countries</label>
+                        <source_model>Magento\Payment\Model\Config\Source\Allspecificcountries</source_model>
+                    </field>
+
+                    <field id="specificcountry" translate="label comment" type="multiselect" sortOrder="6" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Payment from Specific Countries</label>
+                        <source_model>Magento\Directory\Model\Config\Source\Country</source_model>
+                        <can_be_empty>1</can_be_empty>
+                    </field>
+
+                    <field id="sort_order" translate="label comment" type="text" sortOrder="7" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Sort Order</label>
+                        <frontend_class>validate-number</frontend_class>
+                    </field>
+
+                    <field id="test_mode" translate="label comment" type="select" sortOrder="8" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Test Mode</label>
+                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    </field>
+
+                    <field id="key" translate="label comment" sortOrder="9" type="text" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Key</label>
+                    </field>
+
+                    <field id="company_code" translate="label comment" sortOrder="10" type="text" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Company Code</label>
+                    </field>
+
+                    <field id="ept_number" translate="label comment" sortOrder="11" type="text" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>EPT Number</label>
+                    </field>
+
+                    <field id="ept_number_test_mode" translate="label comment" sortOrder="12" type="text" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>EPT Number for Test Mode</label>
+                    </field>
+
+                    <field id="api_url" translate="label comment" type="text" sortOrder="13" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>API Url</label>
+                    </field>
+
+                    <field id="api_url_test_mode" translate="label comment" type="text" sortOrder="14" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>API Url for Test Mode</label>
+                    </field>
+
+                </group>
+        </section>
+    </system>
+</config>
