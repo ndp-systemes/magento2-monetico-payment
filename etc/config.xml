@@ -24,7 +24,6 @@
                 <model>NDP\Monetico\Model\Monetico</model>
                 <active>1</active>
                 <title>Monetico</title>
-                <payment_action>capture</payment_action>
                 <express_payment>false</express_payment>
                 <test_mode>true</test_mode>
                 <api_url>https://p.monetico-services.com/paiement.cgi</api_url>
