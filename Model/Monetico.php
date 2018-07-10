@@ -23,14 +23,11 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
     const MONETICO_VERSION = "3.0";
     const MONETICO_URLOK = "monetico/payment/success";
     const MONETICO_URLKO = "monetico/payment/error";
-    const MONETICO_URLCANCEL = "monetico/payment/cancel";
     const TEST_MODE_CONF_SUFFIX = "_test_mode";
 
     protected $_code = 'monetico';
     protected $_isOffline = true;
     protected $_isInitializeNeeded = true;
-
-    protected $_formBlockType = 'NDP\Monetico\Block\Form\Monetico';
 
     protected $_orderInterface;
     protected $_moneticoHelper;
@@ -87,58 +84,84 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
     {
         // Send reception to bank
         $calcMac = $this->checkBackData($params);
-        $getMAC = isset($params['MAC']) ?  strtolower($params['MAC']) : '';
+        $getMAC = isset($params['MAC']) ? strtolower($params['MAC']) : '';
         $correctHash = $getMAC == $calcMac;
         $this->_moneticoHelper->getApiResponse($correctHash);
+
+        //$this->_logger->error("Monetico - params - " . print_r($params, true));
+        //$this->_logger->error("Monetico - calc MAC - " . $calcMac);
 
         // check MAC key
         // Stop treatment if signature is not send
         if (!$getMAC) {
             // Error no MAC signature
-            return $this->_logger->error("Monetico - No HMAC sent");
+            $this->_logger->error("Monetico - No HMAC sent - " . $params['reference']);
+            return false;
         }
 
         // Stop treatment if signature is not good
         if (!$correctHash) {
-            return $this->_logger->error("Monetico - Sent HMAC is invalid");
+            $this->_logger->error("Monetico - Sent HMAC is invalid - " . $params['reference']);
+            return false;
         }
 
-        if(isset($params['reference'])){
+        if (isset($params['reference'])) {
+
             $order = $this->getOrder($params['reference']);
 
             if ($order->getId()) {
+
+                $savedCc = $params['cbenregistree'];
+                if ($savedCc == "1" || $savedCc == "0") {
+                    $this->_moneticoHelper->setCustomerCcSaved($order->getCustomerId(), $savedCc);
+                }
+
                 return $this->_processOrder($order, $params);
-            } else {
-                return $this->_logger->error("Monetico - No order with this reference found");
             }
-        } else {
-            return $this->_logger->error("Monetico - No order reference sent");
+
+            $this->_logger->error("Monetico - No order with this reference found - " . $params['reference']);
+            return false;
         }
+
+        $this->_logger->error("Monetico - No order reference sent");
+        return false;
     }
 
-    protected function _processOrder(\Magento\Sales\Model\Order $order , $params)
+
+
+    protected function _processOrder(\Magento\Sales\Model\Order $order, $params)
     {
         try {
-            if (isset($params['code-retour']) && ( $params['code-retour'] == 'payetest' || $params['code-retour'] == 'paiement' )) {
-                $outSum = round($order->getGrandTotal(), 2);
+            $continue = true;
 
-                if ($outSum != (float)$params["montant"]) {
-                    // Error amount difference
-                    $order->addStatusHistoryComment(
-                        $this->getRefusedPaymentMessage($params, 'Amount is not valid')
-                    );
-                }
+            if (!isset($params['code-retour']) || ($params['code-retour'] != 'payetest' && $params['code-retour'] != 'paiement')) {
+                $order->addStatusHistoryComment(
+                    $this->getRefusedPaymentMessage($params, 'Return code is canceled')
+                );
+                $continue = false;
+            }
 
-                if (!isset($params['numauto'])) {
-                    $order->addStatusHistoryComment(
-                        $this->getRefusedPaymentMessage($params, 'NumAuto is not send')
-                    );
-                }
+            $outSum = round($order->getGrandTotal(), 2);
+            if ($outSum != (float)$params["montant"]) {
+                // Error amount difference
+                $order->addStatusHistoryComment(
+                    $this->getRefusedPaymentMessage($params, 'Amount is not valid')
+                );
+                $continue = false;
+            }
+
+            if (!isset($params['numauto'])) {
+                $order->addStatusHistoryComment(
+                    $this->getRefusedPaymentMessage($params, 'NumAuto is not send')
+                );
+                $continue = false;
+            }
+
+            if ($continue) {
 
                 $order->setState(\Magento\Sales\Model\Order::STATE_PROCESSING);
                 $order->setStatus($order->getConfig()->getStateDefaultStatus($order->getState()));
                 $order->addStatusToHistory($order->getStatus(), $this->getSuccessfulPaymentMessage($params));
-                $order->save();
 
                 if ($order->canInvoice()) {
                     $invoice = $this->_invoiceService->prepareInvoice($order);
@@ -146,25 +169,22 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
                     $invoice->save();
                     $transactionSave = $this->_transaction->addObject($invoice)->addObject($invoice->getOrder());
                     $transactionSave->save();
-                    $order->addStatusHistoryComment(__('Invoice %1 created',$invoice->getIncrementId()))->setIsCustomerNotified(false)->save();
+                    $order->addStatusHistoryComment(__('Invoice %1 created', $invoice->getIncrementId()))->setIsCustomerNotified(false)->save();
                 }
 
-            } else {
-                $order->addStatusHistoryComment(
-                    $this->getRefusedPaymentMessage($params, 'Return code is canceled')
-                );
+                $order->save();
             }
 
-            $order->save();
         } catch (\Exception $e) {
             $order->addStatusHistoryComment(
                 $this->getRefusedPaymentMessage($params, 'Exception: ' . $e->getMessage())
             );
+            $order->save();
         }
     }
 
 
-    public function getPostData($orderId)
+    public function getPostData($orderId, $saveCc = "0")
     {
         $order = $this->getOrder($orderId);
 
@@ -177,12 +197,23 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
         // Currency : ISO 4217 compliant
         $currency = "EUR";
 
-        $freeText = (string) __('Payment for %1 order',  $this->getStoreName());
+        $freeText = (string)__('Payment for %1 order', $this->getStoreName());
         $date = date("d/m/Y:H:i:s");
         $language = "FR";
-        $options = "aliascb=" . $order->getCustomerId(); // Monetico Express payment
 
-        $postFields = implode('*',[
+        if ($this->getExpressPayment()) {
+            $options = "aliascb=client" . $order->getCustomerId(); // Monetico Express payment
+
+            $savedCc = $this->_moneticoHelper->isCustomerCcSaved($order->getCustomerId());
+            if (!$savedCc || $saveCc == "0") {
+                $options = $options . "&forcesaisiecb=1"; // Force saisie
+            }
+        }
+        else {
+            $options = "forcesaisiecb=1"; // Force saisie
+        }
+
+        $postFields = implode('*', [
             $this->getEptNumber(),
             $date,
             $amount . $currency,
@@ -213,7 +244,7 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
             'montant' => $amount . $currency,
             'reference' => $reference,
             'MAC' => $hmac,
-            'url_retour' => $this->_urlBuilder->getUrl(self::MONETICO_URLCANCEL),
+            'url_retour' => $this->_urlBuilder->getUrl("/"),
             'url_retour_ok' => $this->_urlBuilder->getUrl(self::MONETICO_URLOK),
             'url_retour_err' => $this->_urlBuilder->getUrl(self::MONETICO_URLKO),
             'lgue' => $language,
@@ -228,29 +259,33 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
 
     public function checkBackData($data)
     {
+        if ($data == null) {
+            return null;
+        }
+
         // Message Authentication
-        $backFields = implode('*',[
-            $this->getEptNumber(),
-            $data["date"],
-            $data['montant'],
-            $data['reference'],
-            $data['texte-libre'],
-            self::MONETICO_VERSION,
-            $data['code-retour'],
-            $data['cvx'],
-            $data['vld'],
-            $data['brand'],
-            $data['status3ds'],
-            $data['numauto'],
-            $data['motifrefus'],
-            $data['originecb'],
-            $data['bincb'],
-            $data['hpancb'],
-            $data['ipclient'],
-            $data['originetr'],
-            $data['veres'],
-            $data['pares']
-        ]);
+        $backFields = implode('*', [
+                $this->getEptNumber(),
+                $data["date"],
+                $data['montant'],
+                $data['reference'],
+                $data['texte-libre'],
+                self::MONETICO_VERSION,
+                $data['code-retour'],
+                $data['cvx'],
+                $data['vld'],
+                $data['brand'],
+                $data['status3ds'],
+                $data['numauto'],
+                $data['motifrefus'],
+                $data['originecb'],
+                $data['bincb'],
+                $data['hpancb'],
+                $data['ipclient'],
+                $data['originetr'],
+                $data['veres'],
+                $data['pares']
+            ]) . '*';
 
         return $this->_moneticoHelper->computeHmac($backFields, $this->getKey());
     }
@@ -280,14 +315,16 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
         return $msg;
     }
 
-    private function getOrder($orderId) {
+    private function getOrder($orderId)
+    {
         return $this->_orderInterface->loadByIncrementId($orderId);
     }
 
 
     // Getters
 
-    public function getTestMode() {
+    public function getTestMode()
+    {
         if ($this->_testMode === null) {
             $this->_testMode = $this->getConfigData('test_mode');
             $this->_testModeConfigSuffix = $this->_testMode ? $this::TEST_MODE_CONF_SUFFIX : '';
@@ -295,7 +332,8 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
         return $this->_testMode;
     }
 
-    public function getEptNumber() {
+    public function getEptNumber()
+    {
         if ($this->_eptNumber === null) {
             $this->getTestMode();
             $this->_eptNumber = $this->getConfigData('ept_number' . $this->_testModeConfigSuffix);
@@ -303,7 +341,8 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
         return $this->_eptNumber;
     }
 
-    public function getApiUrl() {
+    public function getApiUrl()
+    {
         if ($this->_apiUrl === null) {
             $this->getTestMode();
             $this->_apiUrl = $this->getConfigData('api_url' . $this->_testModeConfigSuffix);
@@ -311,28 +350,32 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
         return $this->_apiUrl;
     }
 
-    public function getKey() {
+    public function getKey()
+    {
         if ($this->_key === null) {
             $this->_key = $this->getConfigData('key');
         }
         return $this->_key;
     }
 
-    public function getCompanyCode() {
+    public function getCompanyCode()
+    {
         if ($this->_companyCode === null) {
             $this->_companyCode = $this->getConfigData('company_code');
         }
         return $this->_companyCode;
     }
 
-    public function getExpressPayment() {
+    public function getExpressPayment()
+    {
         if ($this->_expressPayment === null) {
             $this->_expressPayment = $this->getConfigData('express_payment');
         }
         return $this->_expressPayment;
     }
 
-    public function getStoreName() {
+    public function getStoreName()
+    {
         if ($this->_storeName === null) {
             $this->_storeName = $this->_scopeConfig->getValue('general/store_information/name', \Magento\Store\Model\ScopeInterface::SCOPE_STORE);
         }

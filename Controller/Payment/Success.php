@@ -37,11 +37,11 @@ class Success extends \Magento\Framework\App\Action\Action
         $order = $this->_checkoutSession->getLastRealOrder();
 
         if ($order->getId()) {
-            $this->_checkoutSession
-                ->setLastOrderId($order->getId())
-                ->setLastRealOrderId($order->getIncrementId())
-                ->setLastOrderStatus($order->getStatus())
-                ->setLastSuccessQuoteId($order->getQuoteId());
+//            $this->_checkoutSession
+//                ->setLastOrderId($order->getId())
+//                ->setLastRealOrderId($order->getIncrementId())
+//                ->setLastOrderStatus($order->getStatus())
+//                ->setLastSuccessQuoteId($order->getQuoteId());
 
             $order->addStatusHistoryComment('Customer successfully returned from Monetico');
             $order->save();

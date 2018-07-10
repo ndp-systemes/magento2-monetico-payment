@@ -20,6 +20,30 @@ namespace NDP\Monetico\Helper;
 
 class Data {
 
+    protected $ressourceConnection;
+
+    public function __construct(
+        \Magento\Framework\App\ResourceConnection $ressourceConnection
+    )
+    {
+        $this->ressourceConnection = $ressourceConnection;
+    }
+
+
+    public function setCustomerCcSaved($customerId, $value)
+    {
+        $query = "UPDATE customer_entity SET saved_cc = $value WHERE entity_id = $customerId";
+        $this->ressourceConnection->getConnection()->query($query);
+        return;
+    }
+
+    public function isCustomerCcSaved($customerId)
+    {
+        $query = "SELECT saved_cc FROM customer_entity WHERE entity_id = $customerId";
+        $isSavedCc = $this->ressourceConnection->getConnection()->fetchOne($query);
+        return $isSavedCc == "1" ? true : false;
+    }
+
     /**
      *  Return response for Monetico payment API
      *

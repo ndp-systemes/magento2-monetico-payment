@@ -26,6 +26,31 @@
     </div>
     <div class="payment-method-content">
 
+
+        <dl class="items payable" style="margin-bottom: 35px;">
+
+            <dt class="title">
+                <span>Cartes Bancaires acceptées</span>
+            </dt>
+
+            <dd class="content">
+                <span id="logo_cc_visa" alt="Visa"></span>
+                <span id="logo_cc_mc" alt="MasterCard" ></span>
+                <span id="logo_cc_cb" alt="CB"></span>
+            </dd>
+
+            <dt class="title" style="cursor:pointer;" data-bind="click: function(data, event) { return showCcModal(data, event) }">
+                <strong>Sauvegarde CB</strong>
+                <span class="glyph glyph-tooltip"></span>
+            </dt>
+
+            <dd class="content">
+                <input type="checkbox" id="monetico_savecb" name="savecb" value="1" data-bind="checked: getSaveCc()">
+                <label for="monetico_savecb" style="font-weight:  normal;">Je souhaite enregistrer ma carte bancaire pour un prochain achat.</label>
+            </dd>
+
+        </dl>
+
         <div>
             <p>Vous allez être redirigé vers la page de paiement Monetico</p>
         </div>

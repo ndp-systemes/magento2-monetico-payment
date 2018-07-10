@@ -1,0 +1,44 @@
+
+& when (@media-common = true) {
+
+	span#logo_cc_ae:before,
+	span#logo_cc_mc:before,
+	span#logo_cc_visa:before,
+	span#logo_cc_cb:before
+	{
+		content: '';
+		display: inline-block;
+		margin: 0 5px;
+		overflow: hidden;
+		text-align: center;
+	}
+
+	span#logo_cc_ae:before {
+		background-image: url(../NDP_Monetico/images/logo_american_express.png);
+		background-size: 58px 20px;
+		width: 58px;
+		height: 20px;
+	}
+
+	span#logo_cc_cb:before {
+		background-image: url(../NDP_Monetico/images/logo_cb.jpg);
+		background-size: 28px 20px;
+		width: 28px;
+		height: 20px;
+	}
+
+
+	span#logo_cc_mc:before {
+		background-image: url(../NDP_Monetico/images/logo_mastercard.png);
+		background-size: 34px 20px;
+		width: 34px;
+		height: 20px;
+	}
+
+	span#logo_cc_visa:before {
+		background-image: url(../NDP_Monetico/images/logo_visa.png);
+		background-size: 52px 20px;
+		width: 52px;
+		height: 20px;
+	}
+}
