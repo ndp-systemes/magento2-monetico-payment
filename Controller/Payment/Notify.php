@@ -18,19 +18,19 @@
 
 namespace NDP\Monetico\Controller\Payment;
 
-class Notify extends \Magento\Framework\App\Action\Action
+use Magento\Framework\App\CsrfAwareActionInterface;
+use Magento\Framework\App\Request\InvalidRequestException;
+use Magento\Framework\App\RequestInterface;
+
+class Notify extends \Magento\Framework\App\Action\Action implements CsrfAwareActionInterface
 {
     protected $_moneticoPayment;
-    protected $_helper;
 
     public function __construct(
         \Magento\Framework\App\Action\Context $context,
-        \NDP\Monetico\Model\Monetico $moneticoPayment,
-        \NDP\Monetico\Helper\Data $helper
+        \NDP\Monetico\Model\Monetico $moneticoPayment
     ) {
         $this->_moneticoPayment = $moneticoPayment;
-        $this->_helper = $helper;
-
         parent::__construct($context);
     }
 
@@ -38,10 +38,19 @@ class Notify extends \Magento\Framework\App\Action\Action
     {
         if ($this->getRequest()->isPost()) {
             $data = $this->getRequest()->getPost();
-        } else if ($this->getRequest()->isGet()) {
+        } else {
             $data = $this->getRequest()->getQuery();
         }
-
         $this->_moneticoPayment->executeNotifyRequest($data);
+    }
+
+    public function createCsrfValidationException(RequestInterface $request): ?InvalidRequestException
+    {
+        return null;
+    }
+
+    public function validateForCsrf(RequestInterface $request): ?bool
+    {
+        return true;
     }
 }
