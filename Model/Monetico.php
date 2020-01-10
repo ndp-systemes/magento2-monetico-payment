@@ -18,6 +18,12 @@
 
 namespace NDP\Monetico\Model;
 
+use Magento\Sales\Api\OrderRepositoryInterface;
+use Magento\Sales\Model\Order\InvoiceDocumentFactory;
+use Magento\Sales\Model\Order\InvoiceRepository;
+use Magento\Sales\Model\Order\PaymentAdapterInterface;
+use Magento\Sales\Model\Order\Validation\InvoiceOrderInterface as InvoiceOrderValidator;
+
 class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
 {
     const MONETICO_VERSION = "3.0";
@@ -30,10 +36,14 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
     protected $_isInitializeNeeded = true;
 
     protected $_orderInterface;
+    protected $_orderRepository;
+    protected $_invoiceOrderValidator;
+    protected $_invoiceDocumentFactory;
+    protected $_paymentAdapter;
+    protected $_invoiceRepository;
     protected $_moneticoHelper;
     protected $_urlBuilder;
-    protected $_transaction;
-    protected $_invoiceService;
+    protected $_customerRepository;
 
     protected $_testMode;
     protected $_eptNumber;
@@ -52,23 +62,31 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
         \Magento\Payment\Helper\Data $paymentData,
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
         \Magento\Payment\Model\Method\Logger $logger,
-        \Magento\Sales\Api\Data\OrderInterface $orderInterface,
-        \Magento\Framework\UrlInterface $urlBuilder,
-        \NDP\Monetico\Helper\Data $moneticoHelper,
-        \Magento\Sales\Model\Service\InvoiceService $invoiceService,
-        \Magento\Framework\DB\Transaction $transaction,
-        \Magento\Framework\ObjectManagerInterface $objectManager,
         \Magento\Framework\Model\ResourceModel\AbstractResource $resource = null,
         \Magento\Framework\Data\Collection\AbstractDb $resourceCollection = null,
-        array $data = [])
-    {
+        \Magento\Sales\Api\Data\OrderInterface $orderInterface,
+        OrderRepositoryInterface $orderRepository,
+        InvoiceOrderValidator $invoiceOrderValidator,
+        InvoiceRepository $invoiceRepository,
+        InvoiceDocumentFactory $invoiceDocumentFactory,
+        PaymentAdapterInterface $paymentAdapter,
+        \Magento\Framework\UrlInterface $urlBuilder,
+        \NDP\Monetico\Helper\Data $moneticoHelper,
+        \Magento\Customer\Api\CustomerRepositoryInterface $customerRepository,
+        array $data = []
+    ) {
+        $this->_invoiceOrderValidator = $invoiceOrderValidator;
+        $this->_invoiceDocumentFactory = $invoiceDocumentFactory;
+        $this->_paymentAdapter = $paymentAdapter;
+        $this->_invoiceRepository = $invoiceRepository;
+        $this->_orderRepository = $orderRepository;
         $this->_orderInterface = $orderInterface;
         $this->_moneticoHelper = $moneticoHelper;
         $this->_urlBuilder = $urlBuilder;
-        $this->_transaction = $transaction;
-        $this->_invoiceService = $invoiceService;
+        $this->_customerRepository = $customerRepository;
 
-        parent::__construct($context,
+        parent::__construct(
+            $context,
             $registry,
             $extensionFactory,
             $customAttributeFactory,
@@ -77,7 +95,8 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
             $logger,
             $resource,
             $resourceCollection,
-            $data);
+            $data
+        );
     }
 
     public function executeNotifyRequest($params)
@@ -87,9 +106,6 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
         $getMAC = isset($params['MAC']) ? strtolower($params['MAC']) : '';
         $correctHash = $getMAC == $calcMac;
         $this->_moneticoHelper->getApiResponse($correctHash);
-
-        //$this->_logger->error("Monetico - params - " . print_r($params, true));
-        //$this->_logger->error("Monetico - calc MAC - " . $calcMac);
 
         // check MAC key
         // Stop treatment if signature is not send
@@ -106,14 +122,12 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
         }
 
         if (isset($params['reference'])) {
-
             $order = $this->getOrder($params['reference']);
 
             if ($order->getId()) {
-
                 $savedCc = $params['cbenregistree'];
-                if ($savedCc == "1" || $savedCc == "0") {
-                    $this->_moneticoHelper->setCustomerCcSaved($order->getCustomerId(), $savedCc);
+                if ($this->isCustomerSavingCc($order->getCustomerId()) && ($savedCc == "1" || $savedCc == "0")) {
+                    $this->_moneticoHelper->setCustomerCcSaved($order->getCustomerId(), "1");
                 }
 
                 return $this->_processOrder($order, $params);
@@ -127,11 +141,11 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
         return false;
     }
 
-
-
     protected function _processOrder(\Magento\Sales\Model\Order $order, $params)
     {
         try {
+            $order = $this->_orderRepository->get($order->getId());
+
             $continue = true;
 
             if (!isset($params['code-retour']) || ($params['code-retour'] != 'payetest' && $params['code-retour'] != 'paiement')) {
@@ -159,30 +173,33 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
 
             if ($continue) {
 
-                $order->setState(\Magento\Sales\Model\Order::STATE_PROCESSING);
-                $order->setStatus($order->getConfig()->getStateDefaultStatus($order->getState()));
-                $order->addStatusToHistory($order->getStatus(), $this->getSuccessfulPaymentMessage($params));
+                $order->addCommentToStatusHistory($this->getSuccessfulPaymentMessage($params))->save();
 
                 if ($order->canInvoice()) {
-                    $invoice = $this->_invoiceService->prepareInvoice($order);
-                    $invoice->register();
-                    $invoice->save();
-                    $transactionSave = $this->_transaction->addObject($invoice)->addObject($invoice->getOrder());
-                    $transactionSave->save();
-                    $order->addStatusHistoryComment(__('Invoice %1 created', $invoice->getIncrementId()))->setIsCustomerNotified(false)->save();
+
+                    $invoice = $this->_invoiceDocumentFactory->create($order);
+                    $errorMessages = $this->_invoiceOrderValidator->validate($order, $invoice);
+                    if ($errorMessages->hasMessages()) {
+                        throw new \Magento\Sales\Exception\DocumentValidationException(
+                            __("Invoice Validation Error(s):\n" . implode("\n", $errorMessages->getMessages()))
+                        );
+                    }
+
+                    $order = $this->_paymentAdapter->pay($order, $invoice, false);
+                    $order->setState(\Magento\Sales\Model\Order::STATE_PROCESSING);
+                    $order->setStatus($order->getConfig()->getStateDefaultStatus($order->getState()));
+                    $invoice->setState(\Magento\Sales\Model\Order\Invoice::STATE_PAID);
+                    $this->_invoiceRepository->save($invoice);
+                    $this->_orderRepository->save($order);
                 }
-
-                $order->save();
             }
-
         } catch (\Exception $e) {
-            $order->addStatusHistoryComment(
+            $order->addCommentToStatusHistory(
                 $this->getRefusedPaymentMessage($params, 'Exception: ' . $e->getMessage())
-            );
-            $order->save();
+            )->save();
         }
-    }
 
+    }
 
     public function getPostData($orderId, $saveCc = "0")
     {
@@ -201,16 +218,14 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
         $date = date("d/m/Y:H:i:s");
         $language = "FR";
 
+        $options = "";
         if ($this->getExpressPayment()) {
-            $options = "aliascb=client" . $order->getCustomerId(); // Monetico Express payment
-
             $savedCc = $this->_moneticoHelper->isCustomerCcSaved($order->getCustomerId());
-            if (!$savedCc || $saveCc == "0") {
-                $options = $options . "&forcesaisiecb=1"; // Force saisie
+            if ($saveCc == "1" && $savedCc) {
+                $options = "aliascb=client" . $order->getCustomerId();
+            } elseif ($saveCc == "1" && !$savedCc) {
+                $options = "aliascb=client" . $order->getCustomerId() . "&forcesaisiecb=1";
             }
-        }
-        else {
-            $options = "forcesaisiecb=1"; // Force saisie
         }
 
         $postFields = implode('*', [
@@ -237,7 +252,7 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
         // HMAC computation
         $hmac = $this->_moneticoHelper->computeHmac($postFields, $this->getKey());
 
-        $postData = array(
+        $postData = [
             'version' => self::MONETICO_VERSION,
             'TPE' => $this->getEptNumber(),
             'date' => $date,
@@ -252,7 +267,7 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
             'texte-libre' => $this->_moneticoHelper->htmlEncode($freeText),
             'mail' => $email,
             'options' => $options
-        );
+        ];
 
         return $postData;
     }
@@ -290,7 +305,6 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
         return $this->_moneticoHelper->computeHmac($backFields, $this->getKey());
     }
 
-
     public function getSuccessfulPaymentMessage($postData)
     {
         $msg = __('Payment accepted by Monetico');
@@ -319,7 +333,6 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
     {
         return $this->_orderInterface->loadByIncrementId($orderId);
     }
-
 
     // Getters
 
@@ -380,5 +393,22 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
             $this->_storeName = $this->_scopeConfig->getValue('general/store_information/name', \Magento\Store\Model\ScopeInterface::SCOPE_STORE);
         }
         return $this->_storeName;
+    }
+
+    protected function isCustomerSavingCc($customerId)
+    {
+        $saveCcValue = 0;
+
+        try {
+            $customer = $this->_customerRepository->getById($customerId);
+            $saveCcAttribute = $customer->getCustomAttribute('save_cc');
+
+            if ($saveCcAttribute != null) {
+                $saveCcValue = $saveCcAttribute->getValue();
+            }
+        } catch (\Exception $e) {
+            return 0;
+        }
+        return $saveCcValue;
     }
 }
