@@ -28,6 +28,7 @@
                 <test_mode>true</test_mode>
                 <api_url>https://p.monetico-services.com/paiement.cgi</api_url>
                 <api_url_test_mode>https://p.monetico-services.com/test/paiement.cgi</api_url_test_mode>
+                <three_dsc>challenge_preferred</three_dsc>
             </monetico>
         </payment>
     </default>

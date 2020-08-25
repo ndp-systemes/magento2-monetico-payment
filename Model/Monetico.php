@@ -53,6 +53,7 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
     protected $_storeName;
     protected $_testModeConfigSuffix;
     protected $_expressPayment;
+    protected $_threeDSC;
 
     public function __construct(
         \Magento\Framework\Model\Context $context,
@@ -101,9 +102,10 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
 
     public function executeNotifyRequest($params)
     {
+        $getMAC = isset($params['MAC']) ? strtolower($params['MAC']) : '';
+
         // Send reception to bank
         $calcMac = $this->checkBackData($params);
-        $getMAC = isset($params['MAC']) ? strtolower($params['MAC']) : '';
         $correctHash = $getMAC == $calcMac;
         $this->_moneticoHelper->getApiResponse($correctHash);
 
@@ -205,102 +207,112 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
     {
         $order = $this->getOrder($orderId);
 
+        $tpe= $this->getEptNumber();
         $reference = $order->getIncrementId();
-        $email = $order->getCustomerEmail();
+        $societe= $this->getCompanyCode();
+        $texteLibre = (string)__('Payment for %1 order', $this->getStoreName());
+        $date = date("d/m/Y:H:i:s");
+        $mail = $order->getCustomerEmail();
+        $lgue = "FR";
+        $threeDSC = $this->getThreeDSC();
 
         // Amount : format  "xxxxx.yy" (no spaces)
         $amount = round($order->getData('base_grand_total'), 2);
-
         // Currency : ISO 4217 compliant
         $currency = "EUR";
+        $montant = $amount . $currency;
 
-        $freeText = (string)__('Payment for %1 order', $this->getStoreName());
-        $date = date("d/m/Y:H:i:s");
-        $language = "FR";
+        $urlRetourErr= $this->_urlBuilder->getUrl(self::MONETICO_URLKO);
+        $urlRetourOk= $this->_urlBuilder->getUrl(self::MONETICO_URLOK);
+        $version= self::MONETICO_VERSION;
 
-        $options = "";
+        $aliascb = '';
+        $forcesaisiecb = '';
         if ($this->getExpressPayment()) {
             $savedCc = $this->_moneticoHelper->isCustomerCcSaved($order->getCustomerId());
             if ($saveCc == "1" && $savedCc) {
-                $options = "aliascb=client" . $order->getCustomerId();
+                $aliascb = "client" . $order->getCustomerId();
             } elseif ($saveCc == "1" && !$savedCc) {
-                $options = "aliascb=client" . $order->getCustomerId() . "&forcesaisiecb=1";
+                $aliascb = "client" . $order->getCustomerId();
+                $forcesaisiecb = "1";
             }
         }
 
+        $billingAddress = $order->getBillingAddress();
+        $shippingAddress = $order->getShippingAddress();
+        $rawContexteCommand = '{"billing":{                               
+            "addressLine1":"' . $billingAddress->getStreetLine(1) . '",                             
+            "city":"' . $billingAddress->getCity() . '",
+            "postalCode":"' . $billingAddress->getPostcode() . '",  
+            "country":"' . $billingAddress->getCountryId() . '"
+        }';
+        if ($shippingAddress) {
+            $rawContexteCommand .= ',"shipping":{
+                "addressLine1":"' . $billingAddress->getStreetLine(1) . '",                             
+                "city":"' . $billingAddress->getCity() . '",
+                "postalCode":"' . $billingAddress->getPostcode() . '",  
+                "country":"' . $billingAddress->getCountryId() . '"
+            }';
+        }
+        $rawContexteCommand .= '}';
+
+        $utf8ContexteCommande = utf8_encode($rawContexteCommand);
+        $contexteCommande = base64_encode($utf8ContexteCommande);
+
         $postFields = implode('*', [
-            $this->getEptNumber(),
-            $date,
-            $amount . $currency,
-            $reference,
-            $freeText,
-            self::MONETICO_VERSION,
-            $language,
-            $this->getCompanyCode(),
-            $email,
-            '',
-            '',
-            '',
-            '',
-            '',
-            '',
-            '',
-            '',
-            '',
-            $options]);
+            "TPE=$tpe",
+            "ThreeDSecureChallenge=$threeDSC",
+            "aliascb=$aliascb",
+            "contexte_commande=$contexteCommande",
+            "date=$date",
+            "forcesaisiecb=$forcesaisiecb",
+            "lgue=$lgue",
+            "mail=$mail",
+            "montant=$montant",
+            "reference=$reference",
+            "societe=$societe",
+            "texte-libre=$texteLibre",
+            "url_retour_err=$urlRetourErr",
+            "url_retour_ok=$urlRetourOk",
+            "version=$version",
+        ]);
 
         // HMAC computation
         $hmac = $this->_moneticoHelper->computeHmac($postFields, $this->getKey());
 
-        $postData = [
-            'version' => self::MONETICO_VERSION,
-            'TPE' => $this->getEptNumber(),
+        return [
+            'TPE' => $tpe,
+            'ThreeDSecureChallenge' => $threeDSC,
+            'aliascb' => $aliascb,
+            'contexte_commande' => $contexteCommande,
             'date' => $date,
-            'montant' => $amount . $currency,
+            'forcesaisiecb' => $forcesaisiecb,
+            'lgue' => $lgue,
+            'mail' => $mail,
+            'montant' => $montant,
             'reference' => $reference,
+            'societe' => $societe,
+            'texte-libre' => $texteLibre,
+            'url_retour_ok' => $urlRetourOk,
+            'url_retour_err' => $urlRetourErr,
+            'version' => $version,
             'MAC' => $hmac,
-            'url_retour' => $this->_urlBuilder->getUrl("/"),
-            'url_retour_ok' => $this->_urlBuilder->getUrl(self::MONETICO_URLOK),
-            'url_retour_err' => $this->_urlBuilder->getUrl(self::MONETICO_URLKO),
-            'lgue' => $language,
-            'societe' => $this->getCompanyCode(),
-            'texte-libre' => $this->_moneticoHelper->htmlEncode($freeText),
-            'mail' => $email,
-            'options' => $options
         ];
-
-        return $postData;
     }
 
-    public function checkBackData($data)
+    public function checkBackData($source)
     {
-        if ($data == null) {
-            return null;
-        }
+        $arraySource = $source->getArrayCopy();
+        // sole field to exclude from the MAC computation
+        if( array_key_exists('MAC', $arraySource) )
+            unset($arraySource['MAC']);
 
-        // Message Authentication
-        $backFields = implode('*', [
-                $this->getEptNumber(),
-                $data["date"],
-                $data['montant'],
-                $data['reference'],
-                $data['texte-libre'],
-                self::MONETICO_VERSION,
-                $data['code-retour'],
-                $data['cvx'],
-                $data['vld'],
-                $data['brand'],
-                $data['status3ds'],
-                $data['numauto'],
-                $data['motifrefus'],
-                $data['originecb'],
-                $data['bincb'],
-                $data['hpancb'],
-                $data['ipclient'],
-                $data['originetr'],
-                $data['veres'],
-                $data['pares']
-            ]) . '*';
+        // order by key is mandatory
+        ksort($arraySource);
+        // map entries to "key=value" to match the target format
+        array_walk($arraySource, function(&$a, $b) { $a = "$b=$a"; });
+        // join all entries using asterisk as separator
+        $backFields = implode( '*', $arraySource);
 
         return $this->_moneticoHelper->computeHmac($backFields, $this->getKey());
     }
@@ -309,10 +321,14 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
     {
         $msg = __('Payment accepted by Monetico');
         if (array_key_exists('numauto', $postData)) {
-            $msg .= "<br/>" . __('Number of authorization: %1', $postData['numauto']);
+            $auth = preg_replace( "/\r|\n| /", "", base64_decode($postData['authentification']));
+            $msg .= "<br/><br/>" . __('Number of authorization: %1', $postData['numauto']);
+            $msg .= "<br/>" . __('Masked card number: %1', $postData['cbmasquee']);
             $msg .= "<br/>" . __('Was the visual cryptogram seized: %1', $postData['cvx']);
             $msg .= "<br/>" . __('Validity of the card: %1', $postData['vld']);
             $msg .= "<br/>" . __('Type of the card: %1', $postData['brand']);
+            $msg .= "<br/>" . __('Virtual card: %1', $postData['ecard']);
+            $msg .= "<br/>" . __('Authentification: %1', $auth);
         }
         return $msg;
     }
@@ -321,10 +337,14 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
     {
         $msg = __('Payment refused by Monetico. ' . $additionalText);
         if (array_key_exists('motifrefus', $postData)) {
-            $msg .= "<br/>" . __('Motive for refusal: %1', $postData['motifrefus']);
+            $auth = preg_replace( "/\r|\n| /", "", base64_decode($postData['authentification']));
+            $msg .= "<br/><br/>" . __('Motive for refusal: %1', $postData['motifrefus']);
+            $msg .= "<br/>" . __('Masked card number: %1', $postData['cbmasquee']);
             $msg .= "<br/>" . __('Was the visual cryptogram seized: %1', $postData['cvx']);
             $msg .= "<br/>" . __('Validity of the card: %1', $postData['vld']);
             $msg .= "<br/>" . __('Type of the card: %1', $postData['brand']);
+            $msg .= "<br/>" . __('Virtual card: %1', $postData['ecard']);
+            $msg .= "<br/>" . __('Authentification: %1', $auth);
         }
         return $msg;
     }
@@ -343,6 +363,14 @@ class Monetico extends \Magento\Payment\Model\Method\AbstractMethod
             $this->_testModeConfigSuffix = $this->_testMode ? $this::TEST_MODE_CONF_SUFFIX : '';
         }
         return $this->_testMode;
+    }
+
+    public function getThreeDSC()
+    {
+        if ($this->_threeDSC === null) {
+            $this->_threeDSC = $this->getConfigData('three_dsc');
+        }
+        return $this->_threeDSC;
     }
 
     public function getEptNumber()

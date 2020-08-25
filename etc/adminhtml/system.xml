@@ -71,6 +71,11 @@
                         <label>EPT Number</label>
                     </field>
 
+                    <field id="three_dsc" sortOrder="11" type="select" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>3DSecure Challenge Preference</label>
+                        <source_model>NDP\Monetico\Model\Config\Source\ThreeDsc</source_model>
+                    </field>
+
                     <field id="ept_number_test_mode" translate="label comment" sortOrder="12" type="text" showInDefault="1" showInWebsite="1" showInStore="0">
                         <label>EPT Number for Test Mode</label>
                     </field>
